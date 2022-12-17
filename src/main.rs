@@ -1,35 +1,29 @@
 mod csv;
 mod objects;
 
-use std::env;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Sender};
 use std::thread;
 use std::time;
 
+use clap::Parser;
 use indicatif::{HumanDuration, ProgressBar, ProgressStyle};
 use num_cpus;
 
 fn main() {
-    let mut path = PathBuf::from(".");
-    let args: Vec<_> = env::args().collect();
-    if args.len() > 1 {
-        println!("The path is {}", args[1]);
-        path = PathBuf::from(&args[1]);
-    };
+    let mut conf = objects::Config::parse();
 
-    let mut res;
-    match &path.to_str() {
-        Some(path_as_string) => res = objects::build_result(path_as_string),
-        None => res = objects::build_result(""),
+    if conf.max_threads == 0 {
+        conf.max_threads = num_cpus::get() * 4;
     }
+
+    let mut res = objects::build_result(&conf.path);
 
     // build channel
     let (sender, receiver) = channel();
-    let saved_num_cpu = num_cpus::get() * 4;
 
-    let bar = ProgressBar::new(saved_num_cpu as u64);
+    let bar = ProgressBar::new(conf.max_threads as u64);
     bar.set_style(
         ProgressStyle::default_bar()
             .template("{elapsed} {bar:.cyan/blue} {pos:>3}/{len:3} {msg}")
@@ -37,7 +31,7 @@ fn main() {
     );
 
     // Start scanning at the given path
-    handle_dir(path, sender.clone(), &bar);
+    handle_dir(PathBuf::from(conf.path), sender.clone(), &bar);
 
     let cloned_sender_again = sender.clone();
     let mut running_thread = 0;
@@ -71,7 +65,7 @@ fn main() {
             objects::ResponseType::Dir => {
                 res.directories += 1;
                 // Check if the number of running thread is not too height
-                if running_thread >= saved_num_cpu {
+                if running_thread >= conf.max_threads {
                     // If it's over four times the number of CPU than the folder is saved into a queue
                     dir_queue.push(received);
                 } else {
@@ -112,10 +106,12 @@ fn main() {
     }
     bar.finish();
 
-    // Save the time spend 
+    // Save the time spend
     res.duration = starting_point.elapsed();
 
-    csv::save(&res);
+    if conf.save_csv {
+        csv::save(&res);
+    }
 
     println!("Scan took {}", HumanDuration(res.duration));
     println!("Files -> {}", nice_number(res.files));

@@ -1,6 +1,6 @@
 [package]
 name = "fs-scan"
-version = "0.3.2"
+version = "0.6.0"
 authors = ["alexandre"]
 edition = "2018"
 
@@ -9,4 +9,5 @@ edition = "2018"
 [dependencies]
 num_cpus = "1.13.0"
 indicatif = "0.14.0"
+clap = { version = "4.0.29", features = ["derive"] }
 
