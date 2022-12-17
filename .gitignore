@@ -17,3 +17,4 @@ Cargo.lock
 # End of https://www.gitignore.io/api/rust
 
 fs-scan_output.csv
+fs-scan-binary.tgz

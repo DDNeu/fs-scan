@@ -21,9 +21,9 @@ pub struct Result {
     pub between_100_m_1_g: usize,
     pub more_than_1_g: usize,
 }
-pub fn build_result(path: &str) -> Result {
+pub fn build_result(path: &String) -> Result {
     Result {
-        path: String::from(path),
+        path: path.clone(),
 
         duration: Duration::new(0, 0),
 
@@ -103,4 +103,19 @@ pub fn build_file_chan(size: u64) -> ChanResponse {
         path: PathBuf::new(),
         len: size,
     }
+}
+
+use clap::Parser;
+
+/// Scan recursively the given directory and generate a report of the scanned files based on their relative size. 
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+pub struct Config {
+    pub path: String,
+    /// Maximum number of parallel threads
+   #[arg(short = 't', long, default_value_t = 0)]
+    pub max_threads: usize,
+    /// If specified a log file is generated
+   #[arg(short, long)]
+    pub save_csv: bool,
 }
