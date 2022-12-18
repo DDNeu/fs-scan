@@ -1,10 +1,8 @@
 mod csv;
 mod objects;
 
-use std::fs;
 use std::path::PathBuf;
-use std::sync::mpsc::{channel, Sender};
-use std::thread;
+use std::sync::mpsc::channel;
 use std::time;
 
 use clap::Parser;
@@ -13,6 +11,12 @@ use num_cpus;
 
 fn main() {
     let mut conf = objects::Config::parse();
+
+    // Stop execution if feature requested
+    if conf.lustre_lsom {
+        println!("Lustre LSoM feature is not yet implemented");
+        return;
+    }
 
     if conf.max_threads == 0 {
         conf.max_threads = num_cpus::get() * 4;
@@ -31,7 +35,7 @@ fn main() {
     );
 
     // Start scanning at the given path
-    handle_dir(PathBuf::from(conf.path), sender.clone(), &bar);
+    conf.handle_dir(PathBuf::from(&conf.path), sender.clone(), &bar);
 
     let cloned_sender_again = sender.clone();
     let mut running_thread = 0;
@@ -75,7 +79,7 @@ fn main() {
                     // // Add latency to debug the display
                     // thread::sleep(time::Duration::from_millis(5));
 
-                    handle_dir(received.path, cloned_sender_again.clone(), &bar);
+                    conf.handle_dir(received.path, cloned_sender_again.clone(), &bar);
                 }
             }
             // If this signal a directory scan terminated
@@ -91,7 +95,7 @@ fn main() {
                         // // Add latency to debug the display
                         // thread::sleep(time::Duration::from_millis(5));
 
-                        handle_dir(dir.path, cloned_sender_again.clone(), &bar);
+                        conf.handle_dir(dir.path, cloned_sender_again.clone(), &bar);
                     }
                     None => {
                         running_thread -= 1;
@@ -120,7 +124,8 @@ fn main() {
     } else {
         duration_to_display = HumanDuration(res.duration).to_string();
     }
-    println!("Scan took {duration_to_display}" );
+    println!("Scan took {duration_to_display}");
+
     println!("Files -> {}", nice_number(res.files));
     println!("Directories -> {}", nice_number(res.directories));
     println!("Empty files -> {}", nice_number(res.empty_file));
@@ -179,47 +184,6 @@ fn nice_number(input: usize) -> String {
         return format!("{:?}K ({:?})", input / 1_000, input);
     } else {
         return format!("{:?}M ({:?})", input / 1_000_000, input);
-    }
-}
-
-fn handle_dir(path: PathBuf, ch: Sender<objects::ChanResponse>, bar: &ProgressBar) {
-    match fs::read_dir(&path) {
-        Ok(entries) => {
-            let ch = ch.clone();
-            let bar = bar.clone();
-            thread::spawn(move || {
-                for entry in entries {
-                    match entry {
-                        Ok(entry) => match entry.metadata() {
-                            Ok(metadata) => {
-                                if metadata.is_dir() {
-                                    ch.send(objects::build_dir_chan(entry.path())).unwrap();
-                                } else if metadata.is_file() {
-                                    ch.send(objects::build_file_chan(metadata.len())).unwrap();
-                                }
-                            }
-                            Err(err) => {
-                                bar.println(format!(
-                                    "Couldn't get file metadata for {:?}: {}",
-                                    entry.path(),
-                                    err
-                                ));
-                            }
-                        },
-                        Err(err) => {
-                            bar.println(format!("warning 1 {}", err));
-                        }
-                    }
-                }
-                // Notify the end of the thread
-                ch.send(objects::build_dir_chan_done()).unwrap();
-            });
-        }
-        Err(err) => {
-            bar.println(format!("warning 0 {} {:?}", err, &path));
-            // Notify the end of the thread
-            ch.send(objects::build_dir_chan_done()).unwrap();
-        }
     }
 }
 

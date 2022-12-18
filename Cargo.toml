@@ -10,4 +10,5 @@ edition = "2018"
 num_cpus = "1.13.0"
 indicatif = "0.14.0"
 clap = { version = "4.0.29", features = ["derive"] }
+statx-sys = "0.4.1"
 

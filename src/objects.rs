@@ -1,3 +1,8 @@
+use indicatif::ProgressBar;
+use std::fs;
+use std::sync::mpsc::Sender;
+use std::thread;
+
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -107,15 +112,69 @@ pub fn build_file_chan(size: u64) -> ChanResponse {
 
 use clap::Parser;
 
-/// Scan recursively the given directory and generate a report of the scanned files based on their relative size. 
+/// Scan recursively the given directory and generate a report of the scanned files based on their relative size.
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 pub struct Config {
     pub path: String,
     /// Maximum number of parallel threads
-   #[arg(short = 't', long, default_value_t = 0)]
+    #[arg(short = 't', long, default_value_t = 0)]
     pub max_threads: usize,
     /// If specified a log file is generated
-   #[arg(short, long)]
+    #[arg(short, long)]
     pub save_csv: bool,
+
+    /// If specified try to use statx size for Lustre LSoM
+    #[arg(short, long)]
+    pub lustre_lsom: bool,
+}
+
+use statx_sys;
+impl Config {
+    pub fn handle_dir(&self, path: PathBuf, ch: Sender<ChanResponse>, bar: &ProgressBar) {
+        match fs::read_dir(&path) {
+            Ok(entries) => {
+                let bar = bar.clone();
+                let lsom = self.lustre_lsom;
+                thread::spawn(move || {
+                    for entry in entries {
+                        match entry {
+                            Ok(entry) => match entry.metadata() {
+                                Ok(metadata) => {
+                                    let ch = ch.clone();
+                                    if metadata.is_dir() {
+                                        ch.send(build_dir_chan(entry.path())).unwrap();
+                                    } else if metadata.is_file() {
+                                        if lsom {
+                                            println!(
+                                                "Lustre LSoM is currently not implemented yet"
+                                            );
+                                        }
+                                        ch.send(build_file_chan(metadata.len())).unwrap();
+                                    }
+                                }
+                                Err(err) => {
+                                    bar.println(format!(
+                                        "Couldn't get file metadata for {:?}: {}",
+                                        entry.path(),
+                                        err
+                                    ));
+                                }
+                            },
+                            Err(err) => {
+                                bar.println(format!("warning 1 {}", err));
+                            }
+                        }
+                    }
+                    // Notify the end of the thread
+                    ch.send(build_dir_chan_done()).unwrap();
+                });
+            }
+            Err(err) => {
+                bar.println(format!("warning 0 {} {:?}", err, &path));
+                // Notify the end of the thread
+                ch.send(build_dir_chan_done()).unwrap();
+            }
+        }
+    }
 }
