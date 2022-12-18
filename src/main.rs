@@ -113,7 +113,14 @@ fn main() {
         csv::save(&res);
     }
 
-    println!("Scan took {}", HumanDuration(res.duration));
+    let duration_to_display;
+    let ms_dur = res.duration.as_millis();
+    if ms_dur < 1000 {
+        duration_to_display = ms_dur.to_string() + "ms";
+    } else {
+        duration_to_display = HumanDuration(res.duration).to_string();
+    }
+    println!("Scan took {duration_to_display}" );
     println!("Files -> {}", nice_number(res.files));
     println!("Directories -> {}", nice_number(res.directories));
     println!("Empty files -> {}", nice_number(res.empty_file));
