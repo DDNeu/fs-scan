@@ -193,7 +193,6 @@ fn handle_dir(path: PathBuf, ch: Sender<objects::ChanResponse>, bar: &ProgressBa
                         Ok(entry) => match entry.metadata() {
                             Ok(metadata) => {
                                 if metadata.is_dir() {
-                                    let ch = ch.clone();
                                     ch.send(objects::build_dir_chan(entry.path())).unwrap();
                                 } else if metadata.is_file() {
                                     ch.send(objects::build_file_chan(metadata.len())).unwrap();
