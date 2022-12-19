@@ -2,7 +2,6 @@ use indicatif::ProgressBar;
 
 use std::fs;
 use std::path::PathBuf;
-use std::process::Command;
 use std::sync::mpsc::Sender;
 use std::thread;
 use std::time::Duration;
@@ -124,10 +123,6 @@ pub struct Config {
     /// If specified a log file is generated
     #[arg(short, long)]
     pub save_csv: bool,
-
-    /// If specified try to use statx size for Lustre LSoM
-    #[arg(short, long)]
-    lustre_lsom: bool,
 }
 
 impl Config {
@@ -135,7 +130,6 @@ impl Config {
         match fs::read_dir(&path) {
             Ok(entries) => {
                 let bar = bar.clone();
-                let lsom = self.lustre_lsom;
                 thread::spawn(move || {
                     for entry in entries {
                         match entry {
@@ -145,57 +139,7 @@ impl Config {
                                     if metadata.is_dir() {
                                         ch.send(build_dir_chan(entry.path())).unwrap();
                                     } else if metadata.is_file() {
-                                        if lsom {
-                                            let out = Command::new("/bin/lfs")
-                                                .arg("getsom")
-                                                .arg("-s")
-                                                .arg(entry.path())
-                                                .output();
-                                            match out {
-                                                Ok(o) => {
-                                                    if o.status.success() {
-                                                        let mut cleaned_size = o.stdout.clone();
-                                                        cleaned_size.truncate(o.stdout.len() - 1);
-
-                                                        let size =
-                                                            match String::from_utf8(cleaned_size) {
-                                                                Ok(s_as_str) => {
-                                                                    match u64::from_str_radix(
-                                                                        &s_as_str, 10,
-                                                                    ) {
-                                                                        Ok(s) => s,
-                                                                        Err(e) => {
-                                                                            println!(
-                                                                                "ERROR 1: {} '{}'",
-                                                                                e, s_as_str
-                                                                            );
-                                                                            continue;
-                                                                        }
-                                                                    }
-                                                                }
-                                                                Err(e) => {
-                                                                    println!("ERROR 2: {}", e);
-                                                                    continue;
-                                                                }
-                                                            };
-
-                                                        // Save the size of the given file
-                                                        ch.send(build_file_chan(size)).unwrap();
-                                                    } else {
-                                                        println!(
-                                                            "get LSoM failed: {}",
-                                                            String::from_utf8(o.stderr).unwrap()
-                                                        )
-                                                    }
-                                                }
-                                                Err(e) => {
-                                                    println!("lfs getsom not working: {e}");
-                                                    println!("Failover to regular scan");
-                                                }
-                                            }
-                                        } else {
-                                            ch.send(build_file_chan(metadata.len())).unwrap();
-                                        }
+                                        ch.send(build_file_chan(metadata.len())).unwrap();
                                     }
                                 }
                                 Err(err) => {
@@ -221,12 +165,5 @@ impl Config {
                 ch.send(build_dir_chan_done()).unwrap();
             }
         }
-    }
-
-    pub fn lsom_not_ok(&mut self) {
-        self.lustre_lsom = false;
-    }
-    pub fn is_lsom(&self) -> bool {
-        self.lustre_lsom
     }
 }
