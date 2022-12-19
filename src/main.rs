@@ -2,6 +2,7 @@ mod csv;
 mod objects;
 
 use std::path::PathBuf;
+use std::process::Command;
 use std::sync::mpsc::channel;
 use std::time;
 
@@ -12,10 +13,22 @@ use num_cpus;
 fn main() {
     let mut conf = objects::Config::parse();
 
-    // Stop execution if feature requested
-    if conf.lustre_lsom {
-        println!("Lustre LSoM feature is not yet implemented");
-        return;
+    // Check if LSoM is possible on this node
+    if conf.is_lsom() {
+        // Not possible if Windows host and try to access "lfs getdirestripe" of the target directory to check lfs command plus if the target is Lustre.
+        let _ = if cfg!(target_os = "windows") {
+            println!("Lustre LSoM feature is not possible on Windows systems");
+            std::process::exit(20);
+        } else {
+            let out = Command::new("/bin/lfs").arg("getdirstripe").output();
+            match out {
+                Ok(_) => {}
+                Err(e) => {
+                    conf.lsom_not_ok();
+                    println!("lfs not accessible, failover to regular scan: {e}");
+                }
+            }
+        };
     }
 
     if conf.max_threads == 0 {
