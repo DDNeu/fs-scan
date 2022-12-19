@@ -129,7 +129,6 @@ pub struct Config {
     pub lustre_lsom: bool,
 }
 
-use statx_sys;
 impl Config {
     pub fn handle_dir(&self, path: PathBuf, ch: Sender<ChanResponse>, bar: &ProgressBar) {
         match fs::read_dir(&path) {
