@@ -117,10 +117,10 @@ use clap::Parser;
 #[command(author, version, about, long_about = None)]
 pub struct Config {
     pub path: String,
-    /// Maximum number of parallel threads
+    /// Maximum number of parallel threads. If not configured, 4 times the number of detected logical CPU.
     #[arg(short = 't', long, default_value_t = 0)]
     pub max_threads: usize,
-    /// If specified a log file is generated
+    /// If specified a CSV log file is generated. Multiple run can be done from the same directory to collect outputs from multiple directories in a single file.
     #[arg(short, long)]
     pub save_csv: bool,
 }
