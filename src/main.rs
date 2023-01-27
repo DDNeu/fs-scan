@@ -24,6 +24,7 @@ fn main() {
     bar.set_style(
         ProgressStyle::default_bar()
             .template("{elapsed} {bar:.cyan/blue} {pos:>3}/{len:3} {msg}")
+            .unwrap()
             .progress_chars("##-"),
     );
 
@@ -46,7 +47,7 @@ fn main() {
         //  Limit the display refresh
         let dur = time::Instant::now().duration_since(last_message);
         if dur > display_refresh_time {
-            bar.set_message(&format!(
+            bar.set_message(format!(
                 "files scanned {} and dirs in queue {}",
                 &res.files,
                 &dir_queue.len()
@@ -80,7 +81,7 @@ fn main() {
                 // The process is done
                 // Break the loop to display the results
                 if running_thread == 0 {
-                    bar.set_message(&format!("Total file scanned {}", &res.files));
+                    bar.set_message(format!("Total file scanned {}", &res.files));
                     break;
                 }
                 match dir_queue.pop() {
