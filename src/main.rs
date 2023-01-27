@@ -7,7 +7,6 @@ use std::time;
 
 use clap::Parser;
 use indicatif::{HumanDuration, ProgressBar, ProgressStyle};
-use num_cpus;
 
 fn main() {
     let mut conf = objects::Config::parse();
@@ -31,7 +30,7 @@ fn main() {
     // Start scanning at the given path
     conf.handle_dir(PathBuf::from(&conf.path), sender.clone(), &bar);
 
-    let cloned_sender_again = sender.clone();
+    let cloned_sender_again = sender;
     let mut running_thread = 0;
     let mut dir_queue = Vec::new();
 
@@ -39,7 +38,7 @@ fn main() {
 
     let display_refresh_time = time::Duration::from_millis(250);
     let mut last_message = time::Instant::now()
-        .checked_sub(display_refresh_time.clone())
+        .checked_sub(display_refresh_time)
         .expect("to remove some time");
 
     // Handle responses
@@ -111,13 +110,12 @@ fn main() {
         csv::save(&res);
     }
 
-    let duration_to_display;
     let ms_dur = res.duration.as_millis();
-    if ms_dur < 1000 {
-        duration_to_display = ms_dur.to_string() + "ms";
+    let duration_to_display = if ms_dur < 1000 {
+        ms_dur.to_string() + "ms"
     } else {
-        duration_to_display = HumanDuration(res.duration).to_string();
-    }
+        HumanDuration(res.duration).to_string()
+    };
     println!("Scan took {duration_to_display}");
 
     println!("Files -> {}", nice_number(res.files));
@@ -173,43 +171,43 @@ fn main() {
 
 fn nice_number(input: usize) -> String {
     if input < 1_000 {
-        return format!("{:?}", input);
+        format!("{:?}", input)
     } else if input < 1_000_000 {
-        return format!("{:?}K ({:?})", input / 1_000, input);
+        format!("{:?}K ({:?})", input / 1_000, input)
     } else {
-        return format!("{:?}M ({:?})", input / 1_000_000, input);
+        format!("{:?}M ({:?})", input / 1_000_000, input)
     }
 }
 
 fn handle_file(len: u64, res: &mut objects::Result) {
     if len == 0 {
-        res.empty_file = res.empty_file + 1;
+        res.empty_file += 1;
     } else if len < 4_000 {
-        res.less_than_4_k = res.less_than_4_k + 1;
+        res.less_than_4_k += 1;
     } else if len < 8_000 {
-        res.between_4_k_8_k = res.between_4_k_8_k + 1;
+        res.between_4_k_8_k += 1;
     } else if len < 16_000 {
-        res.between_8_k_16_k = res.between_8_k_16_k + 1;
+        res.between_8_k_16_k += 1;
     } else if len < 32_000 {
-        res.between_16_k_32_k = res.between_16_k_32_k + 1;
+        res.between_16_k_32_k += 1;
     } else if len < 64_000 {
-        res.between_32_k_64_k = res.between_32_k_64_k + 1;
+        res.between_32_k_64_k += 1;
     } else if len < 128_000 {
-        res.between_64_k_128_k = res.between_64_k_128_k + 1;
+        res.between_64_k_128_k += 1;
     } else if len < 256_000 {
-        res.between_128_k_256_k = res.between_128_k_256_k + 1;
+        res.between_128_k_256_k += 1;
     } else if len < 512_000 {
-        res.between_256_k_512_k = res.between_256_k_512_k + 1;
+        res.between_256_k_512_k += 1;
     } else if len < 1_000_000 {
-        res.between_512_k_1_m = res.between_512_k_1_m + 1;
+        res.between_512_k_1_m += 1;
     } else if len < 10_000_000 {
-        res.between_1_m_10_m = res.between_1_m_10_m + 1;
+        res.between_1_m_10_m += 1;
     } else if len < 100_000_000 {
-        res.between_10_m_100_m = res.between_10_m_100_m + 1;
+        res.between_10_m_100_m += 1;
     } else if len < 1_000_000_000 {
-        res.between_100_m_1_g = res.between_100_m_1_g + 1;
+        res.between_100_m_1_g += 1;
     } else {
-        res.more_than_1_g = res.more_than_1_g + 1;
+        res.more_than_1_g += 1;
     }
-    res.files = res.files + 1;
+    res.files += 1;
 }
