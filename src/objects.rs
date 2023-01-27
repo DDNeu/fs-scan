@@ -200,8 +200,8 @@ fn handle_file_stat(
         let stat = statx(
             dir,
             file_c_str.clone(),
-            AtFlags::SYMLINK_NOFOLLOW,
-            StatxFlags::TYPE,
+            AtFlags::SYMLINK_NOFOLLOW | AtFlags::STATX_DONT_SYNC,
+            StatxFlags::SIZE,
         )
         .unwrap_or_else(|_| {
             panic!(
