@@ -12,12 +12,6 @@ use num_cpus;
 fn main() {
     let mut conf = objects::Config::parse();
 
-    // Stop execution if feature requested
-    if conf.lustre_lsom {
-        println!("Lustre LSoM feature is not yet implemented");
-        // return;
-    }
-
     if conf.max_threads == 0 {
         conf.max_threads = num_cpus::get() * 4;
     }

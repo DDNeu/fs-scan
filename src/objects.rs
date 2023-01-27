@@ -1,12 +1,12 @@
-use indicatif::ProgressBar;
-use std::fs;
-use std::os::fd::AsRawFd;
-use std::os::unix::prelude::OpenOptionsExt;
+use std::ffi::{CString, OsStr};
+use std::fs::{self, DirEntry, Metadata};
 use std::sync::mpsc::Sender;
 use std::thread;
-
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
+
+use indicatif::ProgressBar;
+use clap::Parser;
 
 pub struct Result {
     pub path: String,
@@ -28,9 +28,9 @@ pub struct Result {
     pub between_100_m_1_g: usize,
     pub more_than_1_g: usize,
 }
-pub fn build_result(path: &String) -> Result {
+pub fn build_result(path: &str) -> Result {
     Result {
-        path: path.clone(),
+        path: path.to_string(),
 
         duration: Duration::new(0, 0),
 
@@ -112,8 +112,6 @@ pub fn build_file_chan(size: u64) -> ChanResponse {
     }
 }
 
-use clap::Parser;
-
 /// Scan recursively the given directory and generate a report of the scanned files based on their relative size.
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -126,13 +124,13 @@ pub struct Config {
     #[arg(short, long)]
     pub save_csv: bool,
 
-    /// If specified try to use statx size for Lustre LSoM
+    /// If specified try to use statx size for Lustre LSoM. No effect on Windows target
     #[arg(short, long)]
     pub lustre_lsom: bool,
 }
 
-use std::ffi::CString;
-use std::os::raw::c_char;
+// #[cfg(target_os = "linux")]
+
 impl Config {
     pub fn handle_dir(&self, path: PathBuf, ch: Sender<ChanResponse>, bar: &ProgressBar) {
         match fs::read_dir(&path) {
@@ -148,44 +146,7 @@ impl Config {
                                     if metadata.is_dir() {
                                         ch.send(build_dir_chan(entry.path())).unwrap();
                                     } else if metadata.is_file() {
-                                        if lsom {
-                                            let c_str = CString::new(
-                                                entry.path().to_str().expect("path existed"),
-                                            )
-                                            .unwrap();
-                                            let c_world: *const c_char =
-                                                c_str.as_ptr() as *const c_char;
-
-                                            // let mut size: usize = 0;
-
-                                            unsafe {
-                                                let stax_buf: *mut statx_sys::statx =
-                                                    statx_sys::statx as *mut statx_sys::statx;
-
-                                                let ret = statx_sys::statx(
-                                                    statx_sys::AT_FDCWD,
-                                                    c_world,
-                                                    statx_sys::AT_STATX_SYNC_AS_STAT,
-                                                    statx_sys::STATX_SIZE,
-                                                    stax_buf,
-                                                );
-
-                                                println!(
-                                                    "size_from_lsom {ret}, {:?}, {:?}",
-                                                    c_world,
-                                                    (*stax_buf).stx_size
-                                                );
-                                                drop(stax_buf);
-                                            }
-
-                                            // println!(
-                                            //     "Lustre LSoM is currently not implemented yet\n{:?}",
-                                            //     entry.path(),
-                                            // );
-                                            ch.send(build_file_chan(metadata.len())).unwrap();
-                                            continue;
-                                        }
-                                        ch.send(build_file_chan(metadata.len())).unwrap();
+                                        handle_file_stat(lsom, &path, &ch, &entry, &metadata);
                                     }
                                 }
                                 Err(err) => {
@@ -214,4 +175,55 @@ impl Config {
     }
 }
 
-fn lsom_handler() {}
+#[cfg(target_os = "linux")]
+fn handle_file_stat(
+    lsom: bool,
+    path: &PathBuf,
+    ch: &Sender<ChanResponse>,
+    entry: &DirEntry,
+    metadata: &Metadata,
+) {
+    use rustix::fs::{cwd, openat, statx, AtFlags, Mode, OFlags, StatxFlags};
+    use std::os::unix::prelude::OsStrExt;
+    if lsom {
+        let dir_c_str = CString::new(path.to_str().expect("path existed")).unwrap();
+        let file_c_str = CString::new(entry.file_name().to_str().expect("path existed")).unwrap();
+
+        let dir = openat(
+            cwd(),
+            dir_c_str.clone(),
+            OFlags::RDONLY | OFlags::DIRECTORY,
+            Mode::empty(),
+        )
+        .unwrap_or_else(|_| panic!("Failed to open directory: {:?}", path));
+
+        let stat = statx(
+            dir,
+            file_c_str.clone(),
+            AtFlags::SYMLINK_NOFOLLOW,
+            StatxFlags::TYPE,
+        )
+        .unwrap_or_else(|_| {
+            panic!(
+                "Failed to stat file: {:?}",
+                Path::new(OsStr::from_bytes(dir_c_str.as_bytes()))
+                    .join(Path::new(OsStr::from_bytes(file_c_str.to_bytes())))
+            )
+        });
+
+        ch.send(build_file_chan(stat.stx_size)).unwrap();
+    } else {
+        ch.send(build_file_chan(metadata.len())).unwrap();
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn handle_file_stat(
+    lsom: bool,
+    path: &PathBuf,
+    ch: &Sender<ChanResponse>,
+    entry: &DirEntry,
+    metadata: &Metadata,
+) {
+    ch.send(build_file_chan(metadata.len())).unwrap();
+}
