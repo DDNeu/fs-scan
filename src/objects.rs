@@ -1,5 +1,7 @@
 use indicatif::ProgressBar;
 use std::fs;
+use std::os::fd::AsRawFd;
+use std::os::unix::prelude::OpenOptionsExt;
 use std::sync::mpsc::Sender;
 use std::thread;
 
@@ -129,7 +131,8 @@ pub struct Config {
     pub lustre_lsom: bool,
 }
 
-use statx_sys;
+use std::ffi::CString;
+use std::os::raw::c_char;
 impl Config {
     pub fn handle_dir(&self, path: PathBuf, ch: Sender<ChanResponse>, bar: &ProgressBar) {
         match fs::read_dir(&path) {
@@ -146,9 +149,41 @@ impl Config {
                                         ch.send(build_dir_chan(entry.path())).unwrap();
                                     } else if metadata.is_file() {
                                         if lsom {
-                                            println!(
-                                                "Lustre LSoM is currently not implemented yet"
-                                            );
+                                            let c_str = CString::new(
+                                                entry.path().to_str().expect("path existed"),
+                                            )
+                                            .unwrap();
+                                            let c_world: *const c_char =
+                                                c_str.as_ptr() as *const c_char;
+
+                                            // let mut size: usize = 0;
+
+                                            unsafe {
+                                                let stax_buf: *mut statx_sys::statx =
+                                                    statx_sys::statx as *mut statx_sys::statx;
+
+                                                let ret = statx_sys::statx(
+                                                    statx_sys::AT_FDCWD,
+                                                    c_world,
+                                                    statx_sys::AT_STATX_SYNC_AS_STAT,
+                                                    statx_sys::STATX_SIZE,
+                                                    stax_buf,
+                                                );
+
+                                                println!(
+                                                    "size_from_lsom {ret}, {:?}, {:?}",
+                                                    c_world,
+                                                    (*stax_buf).stx_size
+                                                );
+                                                drop(stax_buf);
+                                            }
+
+                                            // println!(
+                                            //     "Lustre LSoM is currently not implemented yet\n{:?}",
+                                            //     entry.path(),
+                                            // );
+                                            ch.send(build_file_chan(metadata.len())).unwrap();
+                                            continue;
                                         }
                                         ch.send(build_file_chan(metadata.len())).unwrap();
                                     }
@@ -178,3 +213,5 @@ impl Config {
         }
     }
 }
+
+fn lsom_handler() {}

@@ -15,7 +15,7 @@ fn main() {
     // Stop execution if feature requested
     if conf.lustre_lsom {
         println!("Lustre LSoM feature is not yet implemented");
-        return;
+        // return;
     }
 
     if conf.max_threads == 0 {
