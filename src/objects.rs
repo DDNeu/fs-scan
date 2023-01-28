@@ -26,9 +26,9 @@ pub struct Result {
     pub between_100_m_1_g: usize,
     pub more_than_1_g: usize,
 }
-pub fn build_result(path: &String) -> Result {
+pub fn build_result(path: &str) -> Result {
     Result {
-        path: path.clone(),
+        path: path.to_string(),
 
         duration: Duration::new(0, 0),
 
@@ -123,35 +123,96 @@ pub struct Config {
     /// If specified a CSV log file is generated. Multiple run can be done from the same directory to collect outputs from multiple directories in a single file.
     #[arg(short, long)]
     pub save_csv: bool,
+    /// If specified use statx size for Lustre LSoM. No effect on Windows target
+    #[arg(short, long)]
+    pub lustre_lsom: bool,
 }
 
 impl Config {
     pub fn handle_dir(&self, path: PathBuf, ch: Sender<ChanResponse>, bar: &ProgressBar) {
+        use rustix::fs::{cwd, openat, statx, AtFlags, Mode, OFlags, StatxFlags};
+        use std::ffi::{CString, OsStr};
+        use std::os::unix::ffi::OsStrExt;
+        use std::path::Path;
+
+        let dir_c_str = CString::new(path.to_str().unwrap()).unwrap();
+        let dir = openat(
+            cwd(),
+            &dir_c_str,
+            OFlags::RDONLY | OFlags::DIRECTORY,
+            Mode::empty(),
+        )
+        .unwrap();
+
         match fs::read_dir(&path) {
             Ok(entries) => {
                 let bar = bar.clone();
+                let lustre_lsom = self.lustre_lsom;
                 thread::spawn(move || {
                     for entry in entries {
                         match entry {
-                            Ok(entry) => match entry.metadata() {
-                                Ok(metadata) => {
-                                    let ch = ch.clone();
-                                    if metadata.is_dir() {
-                                        ch.send(build_dir_chan(entry.path())).unwrap();
-                                    } else if metadata.is_file() {
-                                        ch.send(build_file_chan(metadata.len())).unwrap();
+                            Ok(entry) => {
+                                if lustre_lsom {
+                                    match entry.file_type() {
+                                        Ok(t) => {
+                                            if t.is_dir() {
+                                                ch.send(build_dir_chan(entry.path())).unwrap();
+                                                continue;
+                                            }
+                                        }
+                                        Err(e) => {
+                                            bar.println(format!("Can't get type of file {e:?}"));
+                                            continue;
+                                        }
+                                    }
+
+                                    let file_c_str = CString::new(
+                                        entry.file_name().to_str().expect("path existed"),
+                                    )
+                                    .unwrap();
+                                    let dir_c_str = CString::new(
+                                        entry.file_name().to_str().expect("path existed"),
+                                    )
+                                    .unwrap();
+
+                                    let stat = statx(
+                                        &dir,
+                                        &file_c_str,
+                                        AtFlags::SYMLINK_NOFOLLOW | AtFlags::STATX_DONT_SYNC,
+                                        StatxFlags::SIZE | StatxFlags::TYPE,
+                                    )
+                                    .unwrap_or_else(|_| {
+                                        panic!(
+                                            "Failed to stat file: {:?}",
+                                            Path::new(OsStr::from_bytes(dir_c_str.as_bytes()))
+                                                .join(Path::new(OsStr::from_bytes(
+                                                    file_c_str.to_bytes()
+                                                )))
+                                        )
+                                    });
+                                    ch.send(build_file_chan(stat.stx_size)).unwrap();
+                                } else {
+                                    match entry.metadata() {
+                                        Ok(metadata) => {
+                                            let ch = ch.clone();
+                                            if metadata.is_dir() {
+                                                ch.send(build_dir_chan(entry.path())).unwrap();
+                                            } else if metadata.is_file() {
+                                                ch.send(build_file_chan(metadata.len())).unwrap();
+                                            }
+                                        }
+                                        Err(err) => {
+                                            bar.println(format!(
+                                                "Couldn't get file metadata for {:?}: {}",
+                                                entry.path(),
+                                                err
+                                            ));
+                                        }
                                     }
                                 }
-                                Err(err) => {
-                                    bar.println(format!(
-                                        "Couldn't get file metadata for {:?}: {}",
-                                        entry.path(),
-                                        err
-                                    ));
-                                }
-                            },
+                            }
                             Err(err) => {
-                                bar.println(format!("warning 1 {}", err));
+                                bar.println(format!("warning 1 {err}"));
                             }
                         }
                     }

@@ -1,6 +1,6 @@
 [package]
 name = "fs-scan"
-version = "0.6.0"
+version = "0.7.0"
 authors = ["alexandre"]
 edition = "2018"
 
@@ -10,4 +10,4 @@ edition = "2018"
 num_cpus = "1.14.0"
 indicatif = "0.17.2"
 clap = { version = "4.0.29", features = ["derive"] }
-
+rustix = { version = "0.36.6", features = ["fs"] }
