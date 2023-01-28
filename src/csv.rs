@@ -3,38 +3,32 @@ use std::io::BufRead;
 use std::io::BufReader;
 use std::io::Write;
 
-use super::objects;
+use crate::objects;
 
-static OUTPUT_FILE: &'static str = "fs-scan_output.csv";
-static FILE_FIRST_LINE: &'static str = "Path,Duration_ms,Files,Directories,Empty_files,Less_than_4K,4K_8K,8K_16K,16K_32K,32K_64K,64K_128K,128K_256K,256K_512K,512K_1M,1M_10M,10M_100M,100M_1G,1G";
+static OUTPUT_FILE: &str = "fs-scan_output.csv";
+static FILE_FIRST_LINE: &str = "Path,Duration_ms,Files,Directories,Empty_files,Less_than_4K,4K_8K,8K_16K,16K_32K,32K_64K,64K_128K,128K_256K,256K_512K,512K_1M,1M_10M,10M_100M,100M_1G,1G";
 
 pub fn save(res: &objects::Result) {
     match check_file() {
         Err(s) => {
-            println!("ERROR on check: {}", s);
+            println!("ERROR on check: {s}");
             return;
         }
-        Ok(s) => println!("SUCCESS on check: {}", s),
+        Ok(s) => println!("SUCCESS on check: {s}"),
     }
 
     let mut file = OpenOptions::new()
         .write(true)
         .append(true)
-        .open(&OUTPUT_FILE)
+        .open(OUTPUT_FILE)
         .unwrap();
 
-    if let Err(_) = writeln!(file, "{}", res.csv_line()) {
-        return;
-    }
+    let _ = writeln!(file, "{}", res.csv_line());
 }
 
 fn check_file() -> Result<String, String> {
     // Open the file
-    let mut file = match OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(&OUTPUT_FILE)
-    {
+    let mut file = match OpenOptions::new().read(true).write(true).open(OUTPUT_FILE) {
         Err(_) => {
             // File not opened
             // Try to create it
@@ -43,7 +37,7 @@ fn check_file() -> Result<String, String> {
                 .read(true)
                 .append(true)
                 .create(true)
-                .open(&OUTPUT_FILE)
+                .open(OUTPUT_FILE)
             {
                 Err(_) => return Err("can't open/create new file".to_string()),
                 Ok(file) => file,
@@ -56,7 +50,7 @@ fn check_file() -> Result<String, String> {
     match file.metadata() {
         Ok(m) => {
             if m.len() == 0 {
-                if let Err(_) = writeln!(&mut file, "{}", &String::from(FILE_FIRST_LINE)) {
+                if writeln!(&mut file, "{}", &String::from(FILE_FIRST_LINE)).is_err() {
                     return Err("can't write first line".to_string());
                 }
                 return Ok("new file created and first line added successfully".to_string());
@@ -69,16 +63,14 @@ fn check_file() -> Result<String, String> {
     //
     // Read the content
     let file_content = BufReader::new(&file);
-    for line in file_content.lines() {
-        // let l = line.unwrap();
+    if let Some(line) = file_content.lines().next() {
         let l = match line {
             Ok(l) => l,
-            Err(e) => return Err(format!("can't read line: {}", e)),
+            Err(e) => return Err(format!("can't read line: {e}")),
         };
-        if l == FILE_FIRST_LINE {
-            break;
+        if l != FILE_FIRST_LINE {
+            return Err(format!("Not the same line: content {l}"));
         }
-        return Err(format!("Not the same line: content {}", l));
     }
 
     Ok("first line valid, can add the new report".to_string())
