@@ -57,6 +57,7 @@ Arguments:
 Options:
   -t, --max-threads <MAX_THREADS>  Maximum number of parallel threads. If not configured, 4 times the number of detected logical CPU [default: 0]
   -s, --save-csv                   If specified a CSV log file is generated. Multiple run can be done from the same directory to collect outputs from multiple directories in a single file
+  -l, --lustre-lsom                If specified use statx size for Lustre LSoM. No effect on Windows target
   -h, --help                       Print help information
   -V, --version                    Print version information
 ```
