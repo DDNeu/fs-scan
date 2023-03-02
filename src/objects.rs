@@ -136,13 +136,23 @@ impl Config {
         use std::path::Path;
 
         let dir_c_str = CString::new(path.to_str().unwrap()).unwrap();
-        let dir = openat(
+        let dir = match openat(
             cwd(),
             &dir_c_str,
             OFlags::RDONLY | OFlags::DIRECTORY,
             Mode::empty(),
-        )
-        .unwrap();
+        ) {
+            Ok(d) => d,
+            Err(e) => {
+                bar.println(format!(
+                    "Error opening directory \"{:?}\" with error {e:?}",
+                    path.to_str().unwrap(),
+                ));
+                // Notify the end of the thread
+                ch.send(build_dir_chan_done()).unwrap();
+                return;
+            }
+        };
 
         match fs::read_dir(&path) {
             Ok(entries) => {
