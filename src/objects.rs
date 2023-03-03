@@ -137,7 +137,12 @@ impl Config {
         use std::os::unix::ffi::OsStrExt;
         use std::path::Path;
 
-        let dir_c_str = CString::new(path.to_str().unwrap()).unwrap();
+        let dir_c_str = CString::new(
+            path.to_str().expect(
+                format!("Expect path to be real string but got error for {path:?}").as_str(),
+            ),
+        )
+        .expect(format!("expect to be able to convert path into CString for {path:?}").as_str());
         let dir = match openat(
             cwd(),
             &dir_c_str,
@@ -151,7 +156,8 @@ impl Config {
                     path.to_str().unwrap(),
                 ));
                 // Notify the end of the thread
-                ch.send(build_dir_chan_done()).unwrap();
+                ch.send(build_dir_chan_done())
+                    .expect("Expect channel to be able to send ERR: 4433\n{entry.path():}");
                 return;
             }
         };
@@ -168,7 +174,9 @@ impl Config {
                                     match entry.file_type() {
                                         Ok(t) => {
                                             if t.is_dir() {
-                                                ch.send(build_dir_chan(entry.path())).unwrap();
+                                                ch.send(build_dir_chan(entry.path())).expect(
+                                                    "Expect channel to be able to send ERR: 6151\n{entry.path():}",
+                                                );
                                                 continue;
                                             }
                                         }
@@ -179,38 +187,41 @@ impl Config {
                                     }
 
                                     let file_c_str = CString::new(
-                                        entry.file_name().to_str().expect("path existed"),
+                                        entry.file_name().to_str().expect(format!("Expected file name for {path:?}/{entry:?}").as_str()),
                                     )
-                                    .unwrap();
+                                    .expect(format!("expected to be able to build the CString for file {entry:?}").as_str());
                                     let dir_c_str = CString::new(
-                                        entry.file_name().to_str().expect("path existed"),
+                                        entry.file_name().to_str().expect(format!("Expected file name for {path:?}/{entry:?}").as_str()),
                                     )
-                                    .unwrap();
+                                    .expect(format!("expected to be able to build the CString for directory {entry:?}").as_str());
 
-                                    let stat = statx(
+                                    let stat = match statx(
                                         &dir,
                                         &file_c_str,
                                         AtFlags::SYMLINK_NOFOLLOW | AtFlags::STATX_DONT_SYNC,
                                         StatxFlags::SIZE | StatxFlags::TYPE,
-                                    )
-                                    .unwrap_or_else(|_| {
-                                        panic!(
-                                            "Failed to stat file: {:?}",
-                                            Path::new(OsStr::from_bytes(dir_c_str.as_bytes()))
-                                                .join(Path::new(OsStr::from_bytes(
-                                                    file_c_str.to_bytes()
-                                                )))
-                                        )
-                                    });
-                                    ch.send(build_file_chan(stat.stx_size)).unwrap();
+                                    ) {
+                                        Ok(stat) => stat,
+                                        Err(err) => {
+                                            bar.println(format!(
+                                                "Failed to stat file \"{:?}\" with error {err:?}",
+                                                Path::new(OsStr::from_bytes(dir_c_str.as_bytes()))
+                                                    .join(Path::new(OsStr::from_bytes(
+                                                        file_c_str.to_bytes()
+                                                    )))
+                                            ));
+                                            continue;
+                                        }
+                                    };
+                                    ch.send(build_file_chan(stat.stx_size)) .expect("Expect channel to be able to send ERR: 8096\n{entry.path():}");
                                 } else {
                                     match entry.metadata() {
                                         Ok(metadata) => {
                                             let ch = ch.clone();
                                             if metadata.is_dir() {
-                                                ch.send(build_dir_chan(entry.path())).unwrap();
+                                                ch.send(build_dir_chan(entry.path())).expect("Expect channel to be able to send ERR: 585\n{entry.path():}");
                                             } else if metadata.is_file() {
-                                                ch.send(build_file_chan(metadata.len())).unwrap();
+                                                ch.send(build_file_chan(metadata.len())).expect("Expect channel to be able to send ERR: 9656\n{entry.path():}");
                                             }
                                         }
                                         Err(err) => {
@@ -229,13 +240,15 @@ impl Config {
                         }
                     }
                     // Notify the end of the thread
-                    ch.send(build_dir_chan_done()).unwrap();
+                    ch.send(build_dir_chan_done())
+                        .expect("Expect channel to be able to send ERR: 5288\n{entry.path():}");
                 });
             }
             Err(err) => {
                 bar.println(format!("warning 0 {} {:?}", err, &path));
                 // Notify the end of the thread
-                ch.send(build_dir_chan_done()).unwrap();
+                ch.send(build_dir_chan_done())
+                    .expect("Expect channel to be able to send ERR: 4252\n{entry.path():}");
             }
         }
     }
