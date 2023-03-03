@@ -29,7 +29,7 @@ fn main() {
     );
 
     // Start scanning at the given path
-    conf.handle_dir(PathBuf::from(&conf.path), sender.clone(), &bar);
+    conf.handle_dir(&PathBuf::from(&conf.path), sender.clone(), &bar);
 
     let cloned_sender_again = sender;
     let mut running_thread = 0;
@@ -73,7 +73,7 @@ fn main() {
                     // // Add latency to debug the display
                     // thread::sleep(time::Duration::from_millis(5));
 
-                    conf.handle_dir(received.path, cloned_sender_again.clone(), &bar);
+                    conf.handle_dir(&received.path, cloned_sender_again.clone(), &bar);
                 }
             }
             // If this signal a directory scan terminated
@@ -89,7 +89,7 @@ fn main() {
                         // // Add latency to debug the display
                         // thread::sleep(time::Duration::from_millis(5));
 
-                        conf.handle_dir(dir.path, cloned_sender_again.clone(), &bar);
+                        conf.handle_dir(&dir.path, cloned_sender_again.clone(), &bar);
                     }
                     None => {
                         running_thread -= 1;
