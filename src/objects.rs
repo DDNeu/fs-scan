@@ -356,7 +356,7 @@ impl Config {
     }
 
     #[cfg(target_os = "windows")]
-    pub fn handle_dir(&self, path: PathBuf, ch: Sender<ChanResponse>, bar: &ProgressBar) {
+    pub fn handle_dir(&self, path: &PathBuf, ch: Sender<ChanResponse>, bar: &ProgressBar) {
         match fs::read_dir(&path) {
             Ok(entries) => {
                 let bar = bar.clone();
