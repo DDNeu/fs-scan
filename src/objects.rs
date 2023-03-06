@@ -129,6 +129,25 @@ pub struct Config {
     pub lustre_lsom: bool,
 }
 
+fn display_error_and_stop_thread_before_return(
+    bar: &ProgressBar,
+    ch: &Sender<ChanResponse>,
+    message: String,
+    path: String,
+) {
+    bar.println(message);
+    // Notify the end of the thread
+    match ch.send(build_dir_chan_done()) {
+        Ok(_) => {}
+        Err(e) => {
+            bar.println(format!(
+                "Expect channel to be able to send ERR: 5766\n{:}\n{e}",
+                path,
+            ));
+        }
+    }
+}
+
 impl Config {
     #[cfg(target_os = "linux")]
     pub fn handle_dir(&self, path: &PathBuf, ch: Sender<ChanResponse>, bar: &ProgressBar) {
@@ -140,21 +159,24 @@ impl Config {
         let path_as_str = match path.to_str() {
             Some(s) => s,
             None => {
-                bar.println(
-                    format!("Expect path to be real string but got error for {path:?}").as_str(),
+                return display_error_and_stop_thread_before_return(
+                    bar,
+                    &ch,
+                    format!("Expect path to be real string but got error for {path:?}"),
+                    "can't get path".to_string(),
                 );
-                return;
             }
         };
 
         let dir_c_str = match CString::new(path_as_str) {
             Ok(cs) => cs,
             Err(e) => {
-                bar.println(
-                    format!("expect to be able to convert path into CString for {path:?}: {e:?}")
-                        .as_str(),
+                return display_error_and_stop_thread_before_return(
+                    bar,
+                    &ch,
+                    format!("Expect to be able to convert path into CString for {path:?}: {e:?}"),
+                    path_as_str.to_string(),
                 );
-                return;
             }
         };
 
@@ -166,21 +188,15 @@ impl Config {
         ) {
             Ok(d) => d,
             Err(e) => {
-                bar.println(format!(
-                    "Error opening directory \"{:?}\" with error {e:?}",
-                    &path_as_str,
-                ));
-                // Notify the end of the thread
-                match ch.send(build_dir_chan_done()) {
-                    Ok(_) => {}
-                    Err(e) => {
-                        bar.println(format!(
-                            "Expect channel to be able to send ERR: 4433\n{path_as_str:}\n{e:?}",
-                        ));
-                        return;
-                    }
-                }
-                return;
+                return display_error_and_stop_thread_before_return(
+                    bar,
+                    &ch,
+                    format!(
+                        "Error opening directory \"{:?}\" with error {e:?}",
+                        &path_as_str
+                    ),
+                    path_as_str.to_string(),
+                );
             }
         };
 
@@ -200,18 +216,18 @@ impl Config {
                                                 match ch.send(build_dir_chan(entry.path())) {
                                                     Ok(_) => {}
                                                     Err(e) => {
-                                                        bar.println(format!(
-                                                        "Expect channel to be able to send ERR: 6151\n{path_as_str:}\n{e:?}",
-                                                    )
-                                                );
-                                                        return;
+                                                        bar.println(
+                                                            format!(
+                                                                "Expect channel to be able to send ERR: 6151\n{path_as_str:}/{:?}\n{e:?}", entry.path(),
+                                                            )
+                                                        );
                                                     }
                                                 }
                                                 continue;
                                             }
                                         }
                                         Err(e) => {
-                                            bar.println(format!("Can't get type of file {e:?}"));
+                                            bar.println(format!("Can't get type of file \"{path_as_str:}/{:?}\"\n{e:?}", entry.path()));
                                             continue;
                                         }
                                     }
@@ -226,16 +242,27 @@ impl Config {
                                                     )
                                                     .as_str(),
                                                 );
-                                                return;
+                                                return display_error_and_stop_thread_before_return(
+                                                    &bar,
+                                                    &ch,
+                                                    format!(
+                                                        "Expected file name or {path_as_str:}/{entry:?}"
+                                                    ),
+                                                    path_as_str.to_string(),
+                                                );
                                             }
                                         },
                                     ) {
                                         Ok(cs) => cs,
                                         Err(e) => {
-                                            bar.println(format!(
-                                                "Expected file name or \"{path_as_str:?}/{entry:?}\" {e:?}").as_str()
+                                            return display_error_and_stop_thread_before_return(
+                                                &bar,
+                                                &ch,
+                                                format!(
+                                                    "Expected file name or \"{path_as_str:?}/{entry:?}\" {e:?}"
+                                                ),
+                                                path_as_str.to_string(),
                                             );
-                                            return;
                                         }
                                     };
 
@@ -243,22 +270,27 @@ impl Config {
                                         match entry.file_name().to_str() {
                                             Some(s) => s,
                                             None => {
-                                                bar.println(
+                                                return display_error_and_stop_thread_before_return(
+                                                    &bar,
+                                                    &ch,
                                                     format!(
                                                         "Expected file name for {path_as_str:?}/{entry:?}"
-                                                    )
-                                                    .as_str(),
+                                                    ),
+                                                    path_as_str.to_string(),
                                                 );
-                                                return;
                                             }
                                         },
                                     ) {
                                         Ok(cs) => cs,
                                         Err(e) => {
-                                            bar.println(format!(
-                                                "Expected o be able to build the CString for directory {entry:?}\n{e:?}").as_str()
+                                            return display_error_and_stop_thread_before_return(
+                                                &bar,
+                                                &ch,
+                                                format!(
+                                                    "Expected o be able to build the CString for directory {entry:?}\n{e:?}"
+                                                ),
+                                                path_as_str.to_string(),
                                             );
-                                            return;
                                         }
                                     };
 
@@ -323,7 +355,10 @@ impl Config {
                                 }
                             }
                             Err(err) => {
-                                bar.println(format!("warning 1 {err}"));
+                                bar.println(format!(
+                                    "Can't display the entry of directory \"{:?}\" {err}",
+                                    path_as_str
+                                ));
                             }
                         }
                     }
@@ -332,7 +367,7 @@ impl Config {
                         Ok(_) => {}
                         Err(e) => {
                             bar.println(format!(
-                                "Expect channel to be able to send ERR: 5288\n{:}\n{e}",
+                                "Expect channel to be able to send the signal to tell the directory \"{:}\" is done successfully but got error:\n{e}",
                                 path_as_str,
                             ));
                         }
@@ -340,7 +375,10 @@ impl Config {
                 });
             }
             Err(err) => {
-                bar.println(format!("warning 0 {} {:?}", err, &path_as_str));
+                bar.println(format!(
+                    "Can't read the directory content of \"{:?}\": {}",
+                    path_as_str, err
+                ));
                 // Notify the end of the thread
                 match ch.send(build_dir_chan_done()) {
                     Ok(_) => {}

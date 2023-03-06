@@ -1,6 +1,6 @@
 [package]
 name = "fs-scan"
-version = "0.7.2"
+version = "0.7.3"
 authors = ["alexandre"]
 edition = "2018"
 
