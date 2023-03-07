@@ -1,6 +1,7 @@
 mod csv;
 mod objects;
 
+use std::fs;
 use std::path::PathBuf;
 use std::sync::mpsc::channel;
 use std::time;
@@ -14,6 +15,8 @@ fn main() {
     if conf.max_threads == 0 {
         conf.max_threads = num_cpus::get() * 4;
     }
+
+    let statx_capable = statx_supported(&conf.path);
 
     let mut res = objects::build_result(&conf.path);
 
@@ -29,7 +32,12 @@ fn main() {
     );
 
     // Start scanning at the given path
-    conf.handle_dir(&PathBuf::from(&conf.path), sender.clone(), &bar);
+    conf.handle_dir(
+        &PathBuf::from(&conf.path),
+        sender.clone(),
+        &bar,
+        statx_capable,
+    );
 
     let cloned_sender_again = sender;
     let mut running_thread = 0;
@@ -73,7 +81,12 @@ fn main() {
                     // // Add latency to debug the display
                     // thread::sleep(time::Duration::from_millis(5));
 
-                    conf.handle_dir(&received.path, cloned_sender_again.clone(), &bar);
+                    conf.handle_dir(
+                        &received.path,
+                        cloned_sender_again.clone(),
+                        &bar,
+                        statx_capable,
+                    );
                 }
             }
             // If this signal a directory scan terminated
@@ -89,7 +102,12 @@ fn main() {
                         // // Add latency to debug the display
                         // thread::sleep(time::Duration::from_millis(5));
 
-                        conf.handle_dir(&dir.path, cloned_sender_again.clone(), &bar);
+                        conf.handle_dir(
+                            &dir.path,
+                            cloned_sender_again.clone(),
+                            &bar,
+                            statx_capable,
+                        );
                     }
                     None => {
                         running_thread -= 1;
@@ -210,4 +228,96 @@ fn handle_file(len: u64, res: &mut objects::Result) {
         res.more_than_1_g += 1;
     }
     res.files += 1;
+}
+
+fn statx_supported(path: &String) -> bool {
+    let entries = match fs::read_dir(path) {
+        Ok(entries) => entries,
+        Err(e) => {
+            println!("the path can't be read as a directory: {e:}");
+            return false;
+        }
+    };
+
+    // Get the fist file from the directory
+    for entry in entries {
+        match entry {
+            Ok(entry) => match entry.file_type() {
+                Ok(t) => {
+                    if t.is_dir() {
+                        continue;
+                    } else if t.is_file() {
+                        return test_statx_on_file(path, entry);
+                    }
+                }
+                Err(e) => {
+                    println!(
+                        "can't get type of file {:?} with error: {e:}",
+                        entry.file_name().as_os_str()
+                    );
+                    continue;
+                }
+            },
+            Err(e) => {
+                println!("can't get the content from the directory: {e:}");
+            }
+        }
+    }
+
+    false
+}
+
+fn test_statx_on_file(path_as_str: &String, entry: fs::DirEntry) -> bool {
+    use rustix::fs::{cwd, openat, statx, AtFlags, Mode, OFlags, StatxFlags};
+    use std::ffi::CString;
+
+    let dir_c_str = match CString::new(path_as_str.as_str()) {
+        Ok(cs) => cs,
+        Err(e) => {
+            println!("can't make the directory C string: {e:}");
+            return false;
+        }
+    };
+
+    let dir = match openat(
+        cwd(),
+        &dir_c_str,
+        OFlags::RDONLY | OFlags::DIRECTORY,
+        Mode::empty(),
+    ) {
+        Ok(d) => d,
+        Err(e) => {
+            println!("can't open file with statx lib: {e:}");
+            return false;
+        }
+    };
+
+    let file_c_str = match CString::new(match entry.file_name().to_str() {
+        Some(s) => s,
+        None => {
+            println!("can't get entry file name");
+            return false;
+        }
+    }) {
+        Ok(cs) => cs,
+        Err(e) => {
+            println!("can't make CString from file name: {e:}");
+            return false;
+        }
+    };
+
+    match statx(
+        &dir,
+        &file_c_str,
+        AtFlags::SYMLINK_NOFOLLOW | AtFlags::STATX_DONT_SYNC,
+        StatxFlags::SIZE | StatxFlags::TYPE,
+    ) {
+        Ok(stat) => stat,
+        Err(e) => {
+            println!("can't get stat with statx: {e:}");
+            return false;
+        }
+    };
+
+    true
 }

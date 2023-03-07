@@ -117,16 +117,13 @@ use clap::Parser;
 #[command(author, version, about, long_about = None)]
 pub struct Config {
     pub path: String,
+
     /// Maximum number of parallel threads. If not configured, 4 times the number of detected logical CPU.
     #[arg(short = 't', long, default_value_t = 0)]
     pub max_threads: usize,
     /// If specified a CSV log file is generated. Multiple run can be done from the same directory to collect outputs from multiple directories in a single file.
     #[arg(short, long)]
     pub save_csv: bool,
-    /// If specified use statx size for Lustre LSoM. No effect on Windows target
-    #[cfg(target_os = "linux")]
-    #[arg(short, long)]
-    pub lustre_lsom: bool,
 }
 
 fn display_error_and_stop_thread_before_return(
@@ -150,7 +147,13 @@ fn display_error_and_stop_thread_before_return(
 
 impl Config {
     #[cfg(target_os = "linux")]
-    pub fn handle_dir(&self, path: &PathBuf, ch: Sender<ChanResponse>, bar: &ProgressBar) {
+    pub fn handle_dir(
+        &self,
+        path: &PathBuf,
+        ch: Sender<ChanResponse>,
+        bar: &ProgressBar,
+        statx_capable: bool,
+    ) {
         use rustix::fs::{cwd, openat, statx, AtFlags, Mode, OFlags, StatxFlags};
         use std::ffi::{CString, OsStr};
         use std::os::unix::ffi::OsStrExt;
@@ -203,13 +206,13 @@ impl Config {
         match fs::read_dir(path) {
             Ok(entries) => {
                 let bar = bar.clone();
-                let lustre_lsom = self.lustre_lsom;
+                let statx_capable = statx_capable;
                 let path_as_str = path_as_str.to_string();
                 thread::spawn(move || {
                     for entry in entries {
                         match entry {
                             Ok(entry) => {
-                                if lustre_lsom {
+                                if statx_capable {
                                     match entry.file_type() {
                                         Ok(t) => {
                                             if t.is_dir() {
@@ -260,34 +263,6 @@ impl Config {
                                                 &ch,
                                                 format!(
                                                     "Expected file name or \"{path_as_str:?}/{entry:?}\" {e:?}"
-                                                ),
-                                                path_as_str.to_string(),
-                                            );
-                                        }
-                                    };
-
-                                    let dir_c_str = match CString::new(
-                                        match entry.file_name().to_str() {
-                                            Some(s) => s,
-                                            None => {
-                                                return display_error_and_stop_thread_before_return(
-                                                    &bar,
-                                                    &ch,
-                                                    format!(
-                                                        "Expected file name for {path_as_str:?}/{entry:?}"
-                                                    ),
-                                                    path_as_str.to_string(),
-                                                );
-                                            }
-                                        },
-                                    ) {
-                                        Ok(cs) => cs,
-                                        Err(e) => {
-                                            return display_error_and_stop_thread_before_return(
-                                                &bar,
-                                                &ch,
-                                                format!(
-                                                    "Expected o be able to build the CString for directory {entry:?}\n{e:?}"
                                                 ),
                                                 path_as_str.to_string(),
                                             );
