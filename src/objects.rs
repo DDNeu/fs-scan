@@ -1,6 +1,6 @@
 use indicatif::ProgressBar;
 
-use std::fs;
+use std::fs::{self, ReadDir};
 use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 use std::thread;
@@ -154,11 +154,6 @@ impl Config {
         bar: &ProgressBar,
         statx_capable: bool,
     ) {
-        use rustix::fs::{cwd, openat, statx, AtFlags, Mode, OFlags, StatxFlags};
-        use std::ffi::{CString, OsStr};
-        use std::os::unix::ffi::OsStrExt;
-        use std::path::Path;
-
         let path_as_str = match path.to_str() {
             Some(s) => s,
             None => {
@@ -171,172 +166,20 @@ impl Config {
             }
         };
 
-        let dir_c_str = match CString::new(path_as_str) {
-            Ok(cs) => cs,
-            Err(e) => {
-                return display_error_and_stop_thread_before_return(
-                    bar,
-                    &ch,
-                    format!("Expect to be able to convert path into CString for {path:?}: {e:?}"),
-                    path_as_str.to_string(),
-                );
-            }
-        };
-
-        let dir = match openat(
-            cwd(),
-            &dir_c_str,
-            OFlags::RDONLY | OFlags::DIRECTORY,
-            Mode::empty(),
-        ) {
-            Ok(d) => d,
-            Err(e) => {
-                return display_error_and_stop_thread_before_return(
-                    bar,
-                    &ch,
-                    format!(
-                        "Error opening directory \"{:?}\" with error {e:?}",
-                        &path_as_str
-                    ),
-                    path_as_str.to_string(),
-                );
-            }
-        };
-
         match fs::read_dir(path) {
             Ok(entries) => {
                 let bar = bar.clone();
                 let statx_capable = statx_capable;
                 let path_as_str = path_as_str.to_string();
+                let path = path.clone();
+                
                 thread::spawn(move || {
-                    for entry in entries {
-                        match entry {
-                            Ok(entry) => {
-                                if statx_capable {
-                                    match entry.file_type() {
-                                        Ok(t) => {
-                                            if t.is_dir() {
-                                                match ch.send(build_dir_chan(entry.path())) {
-                                                    Ok(_) => {}
-                                                    Err(e) => {
-                                                        bar.println(
-                                                            format!(
-                                                                "Expect channel to be able to send ERR: 6151\n{path_as_str:}/{:?}\n{e:?}", entry.path(),
-                                                            )
-                                                        );
-                                                    }
-                                                }
-                                                continue;
-                                            }
-                                        }
-                                        Err(e) => {
-                                            bar.println(format!("Can't get type of file \"{path_as_str:}/{:?}\"\n{e:?}", entry.path()));
-                                            continue;
-                                        }
-                                    }
-
-                                    let file_c_str = match CString::new(
-                                        match entry.file_name().to_str() {
-                                            Some(s) => s,
-                                            None => {
-                                                bar.println(
-                                                    format!(
-                                                        "Expected file name or {path_as_str:}/{entry:?}"
-                                                    )
-                                                    .as_str(),
-                                                );
-                                                return display_error_and_stop_thread_before_return(
-                                                    &bar,
-                                                    &ch,
-                                                    format!(
-                                                        "Expected file name or {path_as_str:}/{entry:?}"
-                                                    ),
-                                                    path_as_str.to_string(),
-                                                );
-                                            }
-                                        },
-                                    ) {
-                                        Ok(cs) => cs,
-                                        Err(e) => {
-                                            return display_error_and_stop_thread_before_return(
-                                                &bar,
-                                                &ch,
-                                                format!(
-                                                    "Expected file name or \"{path_as_str:?}/{entry:?}\" {e:?}"
-                                                ),
-                                                path_as_str.to_string(),
-                                            );
-                                        }
-                                    };
-
-                                    let stat = match statx(
-                                        &dir,
-                                        &file_c_str,
-                                        AtFlags::SYMLINK_NOFOLLOW | AtFlags::STATX_DONT_SYNC,
-                                        StatxFlags::SIZE | StatxFlags::TYPE,
-                                    ) {
-                                        Ok(stat) => stat,
-                                        Err(err) => {
-                                            bar.println(format!(
-                                                "Failed to stat file \"{:?}\" with error {err:?}",
-                                                Path::new(OsStr::from_bytes(dir_c_str.as_bytes()))
-                                                    .join(Path::new(OsStr::from_bytes(
-                                                        file_c_str.to_bytes()
-                                                    )))
-                                            ));
-                                            continue;
-                                        }
-                                    };
-                                    match ch.send(build_file_chan(stat.stx_size)) {
-                                        Ok(_) => {}
-                                        Err(e) => {
-                                            bar.println(format!(
-                                                "Expect channel to be able to send ERR: 8096\n{:?}\n{e:?}",entry.path(),
-                                            ));
-                                            continue;
-                                        }
-                                    }
-                                } else {
-                                    match entry.metadata() {
-                                        Ok(metadata) => {
-                                            if metadata.is_dir() {
-                                                match ch.send(build_dir_chan(entry.path())) {
-                                                    Ok(_) => {}
-                                                    Err(e) => {
-                                                        bar.println(format!(
-                                                "Expect channel to be able to send ERR: 585\n{:?}\n{e:?}",entry.path(),
-                                            ));
-                                                    }
-                                                };
-                                            } else if metadata.is_file() {
-                                                match ch.send(build_file_chan(metadata.len())) {
-                                                    Ok(_) => {}
-                                                    Err(e) => {
-                                                        bar.println(format!(
-                                                "Expect channel to be able to send ERR: 9656\n{:?}\n{e:?}",entry.path(),
-                                            ));
-                                                    }
-                                                };
-                                            }
-                                        }
-                                        Err(err) => {
-                                            bar.println(format!(
-                                                "Couldn't get file metadata for {:?}: {}",
-                                                entry.path(),
-                                                err
-                                            ));
-                                        }
-                                    }
-                                }
-                            }
-                            Err(err) => {
-                                bar.println(format!(
-                                    "Can't display the entry of directory \"{:?}\" {err}",
-                                    path_as_str
-                                ));
-                            }
-                        }
+                    if statx_capable {
+                        statx_scroller(entries, &ch, &bar, path);
+                    } else {
+                        regular_scroller(entries, &ch, &bar, path);
                     }
+
                     // Notify the end of the thread
                     match ch.send(build_dir_chan_done()) {
                         Ok(_) => {}
@@ -405,6 +248,191 @@ impl Config {
                 bar.println(format!("warning 0 {} {:?}", err, &path));
                 // Notify the end of the thread
                 ch.send(build_dir_chan_done()).unwrap();
+            }
+        }
+    }
+}
+
+fn statx_scroller(entries: ReadDir, ch: &Sender<ChanResponse>, bar: &ProgressBar, path: PathBuf) {
+    use rustix::fs::{cwd, openat, statx, AtFlags, Mode, OFlags, StatxFlags};
+    use std::ffi::{CString, OsStr};
+    use std::os::unix::ffi::OsStrExt;
+    use std::path::Path;
+
+    let path_as_str = match path.to_str() {
+        Some(s) => s,
+        None => {
+            return display_error_and_stop_thread_before_return(
+                &bar,
+                &ch,
+                format!("Expect path to be real string but got error for {path:?}"),
+                "can't get path".to_string(),
+            );
+        }
+    };
+
+    let dir_c_str = match CString::new(path_as_str) {
+        Ok(cs) => cs,
+        Err(e) => {
+            return display_error_and_stop_thread_before_return(
+                &bar,
+                &ch,
+                format!("Expect to be able to convert path into CString for {path:?}: {e:?}"),
+                path_as_str.to_string(),
+            );
+        }
+    };
+
+    let dir = match openat(
+        cwd(),
+        &dir_c_str,
+        OFlags::RDONLY | OFlags::DIRECTORY,
+        Mode::empty(),
+    ) {
+        Ok(d) => d,
+        Err(e) => {
+            return display_error_and_stop_thread_before_return(
+                &bar,
+                &ch,
+                format!(
+                    "Error opening directory \"{:?}\" with error {e:?}",
+                    &path_as_str
+                ),
+                path_as_str.to_string(),
+            );
+        }
+    };
+
+    for entry in entries {
+        match entry {
+            Ok(entry) => {
+                match entry.file_type() {
+                    Ok(t) => {
+                        if t.is_dir() {
+                            match ch.send(build_dir_chan(entry.path())) {
+                                Ok(_) => {}
+                                Err(e) => {
+                                    bar.println(
+                            format!(
+                                "Expect channel to be able to send ERR: 6151\n{path_as_str:}/{:?}\n{e:?}", entry.path(),
+                            )
+                        );
+                                }
+                            }
+                            continue;
+                        }
+                    }
+                    Err(e) => {
+                        bar.println(format!(
+                            "Can't get type of file \"{path_as_str:}/{:?}\"\n{e:?}",
+                            entry.path()
+                        ));
+                        continue;
+                    }
+                }
+
+                let file_c_str = match CString::new(match entry.file_name().to_str() {
+                    Some(s) => s,
+                    None => {
+                        bar.println(
+                            format!("Expected file name or {path_as_str:}/{entry:?}").as_str(),
+                        );
+                        return display_error_and_stop_thread_before_return(
+                            &bar,
+                            &ch,
+                            format!("Expected file name or {path_as_str:}/{entry:?}"),
+                            path_as_str.to_string(),
+                        );
+                    }
+                }) {
+                    Ok(cs) => cs,
+                    Err(e) => {
+                        return display_error_and_stop_thread_before_return(
+                            &bar,
+                            &ch,
+                            format!("Expected file name or \"{path_as_str:?}/{entry:?}\" {e:?}"),
+                            path_as_str.to_string(),
+                        );
+                    }
+                };
+
+                let stat = match statx(
+                    &dir,
+                    &file_c_str,
+                    AtFlags::SYMLINK_NOFOLLOW | AtFlags::STATX_DONT_SYNC,
+                    StatxFlags::SIZE | StatxFlags::TYPE,
+                ) {
+                    Ok(stat) => stat,
+                    Err(err) => {
+                        bar.println(format!(
+                            "Failed to stat file \"{:?}\" with error {err:?}",
+                            Path::new(OsStr::from_bytes(dir_c_str.as_bytes()))
+                                .join(Path::new(OsStr::from_bytes(file_c_str.to_bytes())))
+                        ));
+                        continue;
+                    }
+                };
+                match ch.send(build_file_chan(stat.stx_size)) {
+                    Ok(_) => {}
+                    Err(e) => {
+                        bar.println(format!(
+                            "Expect channel to be able to send ERR: 8096\n{:?}\n{e:?}",
+                            entry.path(),
+                        ));
+                        continue;
+                    }
+                }
+            }
+            Err(err) => {
+                bar.println(format!(
+                    "Can't display the entry of directory \"{:?}\" {err}",
+                    path_as_str
+                ));
+            }
+        }
+    }
+}
+
+fn regular_scroller(entries: ReadDir, ch: &Sender<ChanResponse>, bar: &ProgressBar, path: PathBuf) {
+    for entry in entries {
+        match entry {
+            Ok(entry) => match entry.metadata() {
+                Ok(metadata) => {
+                    if metadata.is_dir() {
+                        match ch.send(build_dir_chan(entry.path())) {
+                            Ok(_) => {}
+                            Err(e) => {
+                                bar.println(format!(
+                                    "Expect channel to be able to send ERR: 585\n{:?}\n{e:?}",
+                                    entry.path(),
+                                ));
+                            }
+                        };
+                    } else if metadata.is_file() {
+                        match ch.send(build_file_chan(metadata.len())) {
+                            Ok(_) => {}
+                            Err(e) => {
+                                bar.println(format!(
+                                    "Expect channel to be able to send ERR: 9656\n{:?}\n{e:?}",
+                                    entry.path(),
+                                ));
+                            }
+                        };
+                    }
+                }
+                Err(err) => {
+                    bar.println(format!(
+                        "Couldn't get file metadata for {:?}: {}",
+                        entry.path(),
+                        err
+                    ));
+                }
+            },
+            Err(err) => {
+                bar.println(format!(
+                    "Can't display the entry of directory \"{:?}\" {err}",
+                    path
+                ));
             }
         }
     }
