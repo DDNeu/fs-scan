@@ -124,6 +124,10 @@ pub struct Config {
     /// If specified a CSV log file is generated. Multiple run can be done from the same directory to collect outputs from multiple directories in a single file.
     #[arg(short, long)]
     pub save_csv: bool,
+
+    /// If specified some additional information are provided.
+    #[arg(short, long)]
+    pub verbose: bool,
 }
 
 fn display_error_and_stop_thread_before_return(

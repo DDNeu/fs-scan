@@ -16,7 +16,7 @@ fn main() {
         conf.max_threads = num_cpus::get() * 4;
     }
 
-    let statx_capable = statx_supported(&conf.path);
+    let statx_capable = statx_supported(&conf.path, conf.verbose);
 
     let mut res = objects::build_result(&conf.path);
 
@@ -230,7 +230,7 @@ fn handle_file(len: u64, res: &mut objects::Result) {
     res.files += 1;
 }
 
-fn statx_supported(path: &String) -> bool {
+fn statx_supported(path: &String, verbose: bool) -> bool {
     let entries = match fs::read_dir(path) {
         Ok(entries) => entries,
         Err(e) => {
@@ -247,7 +247,7 @@ fn statx_supported(path: &String) -> bool {
                     if t.is_dir() {
                         continue;
                     } else if t.is_file() {
-                        return test_statx_on_file(path, entry);
+                        return test_statx_on_file(path, entry, verbose);
                     }
                 }
                 Err(e) => {
@@ -267,15 +267,26 @@ fn statx_supported(path: &String) -> bool {
     false
 }
 
-fn test_statx_on_file(path_as_str: &String, entry: fs::DirEntry) -> bool {
+fn test_statx_on_file(path_as_str: &String, entry: fs::DirEntry, verbose: bool) -> bool {
     use rustix::fs::{cwd, openat, statx, AtFlags, Mode, OFlags, StatxFlags};
     use std::ffi::CString;
+
+    let return_false = |message: String, verbose| -> bool {
+        // Print the given message
+        println!("{message:}");
+        // If verbose it mention the fact that Statx is not supported on this system
+        if verbose {
+            println!("statx is NOT supported on this system");
+        }
+
+        // Return false
+        false
+    };
 
     let dir_c_str = match CString::new(path_as_str.as_str()) {
         Ok(cs) => cs,
         Err(e) => {
-            println!("can't make the directory C string: {e:}");
-            return false;
+            return return_false(format!("can't make the directory C string: {e:}"), verbose);
         }
     };
 
@@ -287,22 +298,19 @@ fn test_statx_on_file(path_as_str: &String, entry: fs::DirEntry) -> bool {
     ) {
         Ok(d) => d,
         Err(e) => {
-            println!("can't open file with statx lib: {e:}");
-            return false;
+            return return_false(format!("can't open file with statx lib: {e:}"), verbose);
         }
     };
 
     let file_c_str = match CString::new(match entry.file_name().to_str() {
         Some(s) => s,
         None => {
-            println!("can't get entry file name");
-            return false;
+            return return_false(format!("can't get entry file name"), verbose);
         }
     }) {
         Ok(cs) => cs,
         Err(e) => {
-            println!("can't make CString from file name: {e:}");
-            return false;
+            return return_false(format!("can't make CString from file name: {e:}"), verbose);
         }
     };
 
@@ -314,10 +322,13 @@ fn test_statx_on_file(path_as_str: &String, entry: fs::DirEntry) -> bool {
     ) {
         Ok(stat) => stat,
         Err(e) => {
-            println!("can't get stat with statx: {e:}");
-            return false;
+            return return_false(format!("can't get stat with statx: {e:}"), verbose);
         }
     };
+
+    if verbose {
+        println!("statx is supported on this system");
+    }
 
     true
 }
