@@ -1,6 +1,7 @@
 mod csv;
 mod objects;
 
+#[cfg(target_os = "linux")]
 use std::fs;
 use std::path::PathBuf;
 use std::sync::mpsc::channel;
@@ -18,7 +19,10 @@ fn main() {
         conf.max_threads = num_cpus::get() * 4;
     }
 
+    #[cfg(target_os = "linux")]
     let statx_capable = statx_supported(&conf.path, conf.verbose);
+    #[cfg(target_os = "windows")]
+    let statx_capable = false;
 
     let mut res = objects::build_result(&conf.path);
 
@@ -232,7 +236,9 @@ fn handle_file(len: u64, res: &mut objects::Result) {
     res.files += 1;
 }
 
+#[cfg(target_os = "linux")]
 fn statx_supported(path: &String, verbose: bool) -> bool {
+
     let entries = match fs::read_dir(path) {
         Ok(entries) => entries,
         Err(e) => {
@@ -276,6 +282,7 @@ fn statx_supported(path: &String, verbose: bool) -> bool {
     false
 }
 
+#[cfg(target_os = "linux")]
 fn test_statx_on_file(path_as_str: &String, entry: fs::DirEntry, verbose: bool) -> bool {
     use rustix::fs::{cwd, openat, statx, AtFlags, Mode, OFlags, StatxFlags};
     use std::ffi::CString;

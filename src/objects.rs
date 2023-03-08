@@ -150,7 +150,6 @@ fn display_error_and_stop_thread_before_return(
 }
 
 impl Config {
-    #[cfg(target_os = "linux")]
     pub fn handle_dir(
         &self,
         path: &PathBuf,
@@ -176,14 +175,14 @@ impl Config {
                 let statx_capable = statx_capable;
                 let path_as_str = path_as_str.to_string();
                 let path = path.clone();
-                
+
                 thread::spawn(move || {
                     if statx_capable {
+                        #[cfg(target_os = "linux")]
                         statx_scroller(entries, &ch, &bar, path);
                     } else {
                         regular_scroller(entries, &ch, &bar, path);
                     }
-
                     // Notify the end of the thread
                     match ch.send(build_dir_chan_done()) {
                         Ok(_) => {}
@@ -214,49 +213,9 @@ impl Config {
             }
         }
     }
-
-    #[cfg(target_os = "windows")]
-    pub fn handle_dir(&self, path: &PathBuf, ch: Sender<ChanResponse>, bar: &ProgressBar) {
-        match fs::read_dir(&path) {
-            Ok(entries) => {
-                let bar = bar.clone();
-                thread::spawn(move || {
-                    for entry in entries {
-                        match entry {
-                            Ok(entry) => match entry.metadata() {
-                                Ok(metadata) => {
-                                    if metadata.is_dir() {
-                                        ch.send(build_dir_chan(entry.path())).unwrap();
-                                    } else if metadata.is_file() {
-                                        ch.send(build_file_chan(metadata.len())).unwrap();
-                                    }
-                                }
-                                Err(err) => {
-                                    bar.println(format!(
-                                        "Couldn't get file metadata for {:?}: {}",
-                                        entry.path(),
-                                        err
-                                    ));
-                                }
-                            },
-                            Err(err) => {
-                                bar.println(format!("warning 1 {}", err));
-                            }
-                        }
-                    }
-                    // Notify the end of the thread
-                    ch.send(build_dir_chan_done()).unwrap();
-                });
-            }
-            Err(err) => {
-                bar.println(format!("warning 0 {} {:?}", err, &path));
-                // Notify the end of the thread
-                ch.send(build_dir_chan_done()).unwrap();
-            }
-        }
-    }
 }
 
+#[cfg(target_os = "linux")]
 fn statx_scroller(entries: ReadDir, ch: &Sender<ChanResponse>, bar: &ProgressBar, path: PathBuf) {
     use rustix::fs::{cwd, openat, statx, AtFlags, Mode, OFlags, StatxFlags};
     use std::ffi::{CString, OsStr};
