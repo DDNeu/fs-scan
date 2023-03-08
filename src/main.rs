@@ -9,6 +9,8 @@ use std::time;
 use clap::Parser;
 use indicatif::{HumanDuration, ProgressBar, ProgressStyle};
 
+use colored::Colorize;
+
 fn main() {
     let mut conf = objects::Config::parse();
 
@@ -134,7 +136,7 @@ fn main() {
     if ms_dur > 1000 {
         duration_to_display = HumanDuration(res.duration).to_string();
     }
-    println!("Scan took {duration_to_display}");
+    println!("Scan took {}", duration_to_display.bold());
 
     println!("Files -> {}", nice_number(res.files));
     println!("Directories -> {}", nice_number(res.directories));
@@ -187,13 +189,13 @@ fn main() {
     println!("More than 1GB -> {}", nice_number(res.more_than_1_g));
 }
 
-fn nice_number(input: usize) -> String {
+fn nice_number(input: usize) -> colored::ColoredString {
     if input < 1_000 {
-        format!("{input:?}")
+        format!("{input:?}").bold()
     } else if input < 1_000_000 {
-        format!("{:?}K ({:?})", input / 1_000, input)
+        format!("{:?}K ({:?})", input / 1_000, input).bold()
     } else {
-        format!("{:?}M ({:?})", input / 1_000_000, input)
+        format!("{:?}M ({:?})", input / 1_000_000, input).bold()
     }
 }
 
@@ -234,7 +236,10 @@ fn statx_supported(path: &String, verbose: bool) -> bool {
     let entries = match fs::read_dir(path) {
         Ok(entries) => entries,
         Err(e) => {
-            println!("the path can't be read as a directory: {e:}");
+            println!(
+                "the path can't be read as a directory: {:}",
+                e.to_string().red()
+            );
             return false;
         }
     };
@@ -252,14 +257,18 @@ fn statx_supported(path: &String, verbose: bool) -> bool {
                 }
                 Err(e) => {
                     println!(
-                        "can't get type of file {:?} with error: {e:}",
-                        entry.file_name().as_os_str()
+                        "can't get type of file {:?} with error: {:}",
+                        entry.file_name().as_os_str(),
+                        e.to_string().red()
                     );
                     continue;
                 }
             },
             Err(e) => {
-                println!("can't get the content from the directory: {e:}");
+                println!(
+                    "can't get the content from the directory: {:}",
+                    e.to_string().red()
+                );
             }
         }
     }
@@ -276,20 +285,28 @@ fn test_statx_on_file(path_as_str: &String, entry: fs::DirEntry, verbose: bool) 
         println!("{message:}");
         // If verbose it mention the fact that Statx is not supported on this system
         if verbose {
-            println!("statx is NOT supported on this system");
+            println!("statx is {:} supported on this system", "NOT".red());
         }
 
         // Return false
         false
     };
 
+    // Generate a CString for the directory
     let dir_c_str = match CString::new(path_as_str.as_str()) {
         Ok(cs) => cs,
         Err(e) => {
-            return return_false(format!("can't make the directory C string: {e:}"), verbose);
+            return return_false(
+                format!(
+                    "can't make the directory C string: {:}",
+                    e.to_string().red()
+                ),
+                verbose,
+            );
         }
     };
 
+    // Open the directory from the CString directory
     let dir = match openat(
         cwd(),
         &dir_c_str,
@@ -298,10 +315,14 @@ fn test_statx_on_file(path_as_str: &String, entry: fs::DirEntry, verbose: bool) 
     ) {
         Ok(d) => d,
         Err(e) => {
-            return return_false(format!("can't open file with statx lib: {e:}"), verbose);
+            return return_false(
+                format!("can't open file with statx lib: {:}", e.to_string().red()),
+                verbose,
+            );
         }
     };
 
+    // Generate a CString for the file
     let file_c_str = match CString::new(match entry.file_name().to_str() {
         Some(s) => s,
         None => {
@@ -310,10 +331,17 @@ fn test_statx_on_file(path_as_str: &String, entry: fs::DirEntry, verbose: bool) 
     }) {
         Ok(cs) => cs,
         Err(e) => {
-            return return_false(format!("can't make CString from file name: {e:}"), verbose);
+            return return_false(
+                format!(
+                    "can't make CString from file name: {:}",
+                    e.to_string().red()
+                ),
+                verbose,
+            );
         }
     };
 
+    // Extract statx based on the previously generated dir and file path via CString
     match statx(
         &dir,
         &file_c_str,
@@ -322,12 +350,16 @@ fn test_statx_on_file(path_as_str: &String, entry: fs::DirEntry, verbose: bool) 
     ) {
         Ok(stat) => stat,
         Err(e) => {
-            return return_false(format!("can't get stat with statx: {e:}"), verbose);
+            return return_false(
+                format!("can't get stat with statx: {:}", e.to_string().red()),
+                verbose,
+            );
         }
     };
 
+    //Display to user that statx is supported on the system
     if verbose {
-        println!("statx is supported on this system");
+        println!("statx is {:} on this system", "supported".green());
     }
 
     true
