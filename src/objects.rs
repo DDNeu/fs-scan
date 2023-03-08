@@ -128,6 +128,11 @@ pub struct Config {
     /// If specified some additional information are provided.
     #[arg(short, long)]
     pub verbose: bool,
+
+    /// If specified statx on linux won't be used.
+    #[arg(long)]
+    #[cfg(target_os = "linux")]
+    pub prevent_statx: bool,
 }
 
 fn display_error_and_stop_thread_before_return(
