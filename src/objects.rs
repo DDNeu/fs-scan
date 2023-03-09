@@ -1,3 +1,4 @@
+use colored::Colorize;
 use indicatif::ProgressBar;
 
 use std::fs::{self, ReadDir};
@@ -202,8 +203,8 @@ impl Config {
             }
             Err(err) => {
                 bar.println(format!(
-                    "Can't read the directory content of \"{:?}\": {}",
-                    path_as_str, err
+                    "Can't read the directory content of {}: {}",
+                    path_as_str.blue(), err.to_string().bold()
                 ));
                 // Notify the end of the thread
                 match ch.send(build_dir_chan_done()) {
