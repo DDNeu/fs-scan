@@ -399,7 +399,7 @@ fn regular_scroller(entries: ReadDir, ch: &Sender<ChanResponse>, bar: &ProgressB
             },
             Err(err) => {
                 bar.println(format!(
-                    "Can't display the entry of directory \"{:?}\" {err}",
+                    "Can't display the entry of directory {:?} {err}",
                     path
                 ));
             }

@@ -298,10 +298,10 @@ fn test_statx_on_file(conf: &Config, entry: fs::DirEntry) -> bool {
     use std::ffi::CString;
 
     let return_false = |message: String, verbose| -> bool {
-        // Print the given message
-        println!("{message:}");
         // If verbose it mention the fact that Statx is not supported on this system
         if verbose {
+            // Print the given message
+            println!("{message:}");
             println!("statx is {:} supported on this system", "NOT".red());
         }
 
